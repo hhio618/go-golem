@@ -138,7 +138,7 @@ type Poller interface {
 }
 
 func (b *Batch) SecondsLeft() float32 {
-	return float32(b.deadline.Sub(time.Now()).Seconds())
+	return float32(time.Until(b.deadline).Seconds())
 }
 func (b *Batch) Id() string {
 	return b.batchId
@@ -169,7 +169,7 @@ func (pb *PollingBatch) Poll(ctx context.Context) (eventCh chan *executer.Comman
 		for lastIdx < pb.size {
 			select {
 			case <-ctx.Done():
-				break
+				return
 			default:
 			}
 			timeout := pb.SecondsLeft()
@@ -268,7 +268,7 @@ func (sb *StreamingBatch) Poll(ctx context.Context) (eventCh chan *executer.Comm
 	for {
 		select {
 		case <-ctx.Done():
-			break
+			return
 		default:
 		}
 		getBatchCtx, cncl = context.WithTimeout(ctx, time.Duration(sb.SecondsLeft())*time.Second)
@@ -298,7 +298,6 @@ func (sb *StreamingBatch) Poll(ctx context.Context) (eventCh chan *executer.Comm
 					}
 
 				}
-			default:
 			}
 		}
 
@@ -312,7 +311,7 @@ func commandEventCtx(evt *sse.Event) (*executer.CommandEventContext, error) {
 		return nil, fmt.Errorf("unsupported event: %v", string(evt.Event))
 	}
 	evtMap := make(map[string]interface{})
-	err := json.Unmarshal(evt.Data, evtMap)
+	err := json.Unmarshal(evt.Data, &evtMap)
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +361,10 @@ func commandEventCtx(evt *sse.Event) (*executer.CommandEventContext, error) {
 				}
 				evtCls = executer.CommandExecuted
 				Kwargs["success"] = return_code == 0
-				Kwargs["message"], _ = x["message"]
+				msg, ok := x["message"]
+				if ok {
+					Kwargs["message"] = msg
+				}
 			default:
 				return nil, fmt.Errorf("invalid CommandStarted event: missing 'return_code'")
 			}

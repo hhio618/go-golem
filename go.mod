@@ -8,6 +8,7 @@ require (
 	github.com/go-kit/kit v0.10.0
 	github.com/hhio618/ya-go-client/ya-activity v0.0.0-00010101000000-000000000000
 	github.com/hhio618/ya-go-client/ya-payment v0.0.0-00010101000000-000000000000
+	github.com/hhio618/ya-go-client/ya-market v0.0.0-00010101000000-000000000000
 	github.com/pkg/errors v0.8.1
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/r3labs/sse/v2 v2.3.2

@@ -298,7 +298,7 @@ func (p *Payment) IncomingInvoice(ctx context.Context) (chan *Invoice, error) {
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			err = json.Unmarshal(bodyBytes, events)
+			err = json.Unmarshal(bodyBytes, &events)
 			if err != nil {
 				//TODO: log this.
 				time.Sleep(1 * time.Second)
@@ -358,7 +358,7 @@ func (p *Payment) IncomingDebitNotes(ctx context.Context) (chan *DebitNote, erro
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			err = json.Unmarshal(bodyBytes, events)
+			err = json.Unmarshal(bodyBytes, &events)
 			if err != nil {
 				//TODO: log this.
 				time.Sleep(1 * time.Second)
