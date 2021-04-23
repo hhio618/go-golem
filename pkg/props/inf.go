@@ -124,11 +124,16 @@ const (
 )
 
 type VMRequest struct {
+	ExeUnitRequest
 	PackageFormat VmPackageFormat
 }
 
 func (vmr *VMRequest) Keys() map[string]string {
-	return map[string]string{
-		VMRequestPackageFormat: "golem.srv.comp.vm.package_format",
-	}
+	baseKeys := vmr.ExeUnitRequest.Keys()
+	baseKeys[VMRequestPackageFormat] = "golem.srv.comp.vm.package_format"
+	return baseKeys
+
+}
+func (vmr *VMRequest) CustomMapping(props Props) error {
+	return nil
 }
