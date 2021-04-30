@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-kit/kit/log"
 	level "github.com/go-kit/kit/log/level"
-	"github.com/hhio618/go-golem/pkg/executer"
+	"github.com/hhio618/go-golem/pkg/event"
 	activity "github.com/hhio618/ya-go-client/ya-activity"
 	sse "github.com/r3labs/sse/v2"
 )
@@ -163,7 +163,7 @@ func NewPollingBatch(logger log.Logger, api *activity.RequestorControlApiService
 
 func (pb *PollingBatch) Poll(ctx context.Context) (eventCh chan *executer.CommandEventContext, errCh chan error) {
 	errCh = make(chan error)
-	eventCh = make(chan *executer.CommandEventContext)
+	eventCh = make(chan *event.CommandEventContext)
 	lastIdx := 0
 	go func() {
 		for lastIdx < pb.size {
@@ -215,8 +215,8 @@ func (pb *PollingBatch) Poll(ctx context.Context) (eventCh chan *executer.Comman
 					"message": message,
 					"success": (strings.ToLower(result.Result) == "ok"),
 				}
-				eventCh <- &executer.CommandEventContext{
-					EvtCls: executer.CommandExecuted,
+				eventCh <- &event.CommandEventContext{
+					EvtCls: event.CommandExecuted,
 					Kwargs: kwargs,
 				}
 				lastIdx = int(result.Index + 1)
@@ -255,7 +255,7 @@ func NewStreamingBatch(logger log.Logger, client *activity.APIClient, api *activ
 
 func (sb *StreamingBatch) Poll(ctx context.Context) (eventCh chan *executer.CommandEventContext, errCh chan error) {
 	errCh = make(chan error)
-	eventCh = make(chan *executer.CommandEventContext)
+	eventCh = make(chan *event.CommandEventContext)
 	lastIdx := 0
 	host := sb.client.GetConfig().Host
 	client := sse.NewClient(fmt.Sprintf("%v/activity/%v/exec/%v", host, sb.activityId, sb.batchId))
@@ -306,7 +306,7 @@ func (sb *StreamingBatch) Poll(ctx context.Context) (eventCh chan *executer.Comm
 	return eventCh, errCh
 }
 
-func commandEventCtx(evt *sse.Event) (*executer.CommandEventContext, error) {
+func commandEventCtx(evt *sse.Event) (*event.CommandEventContext, error) {
 	if string(evt.Event) != "runtime" {
 		return nil, fmt.Errorf("unsupported event: %v", string(evt.Event))
 	}
@@ -320,7 +320,7 @@ func commandEventCtx(evt *sse.Event) (*executer.CommandEventContext, error) {
 		return nil, fmt.Errorf("missing kind")
 	}
 	var evtKind string
-	var evtCls executer.CommandClass
+	var evtCls event.CommandClass
 	Kwargs := map[string]interface{}{
 		"cmd_id": evtMap["index"],
 	}
@@ -343,7 +343,7 @@ func commandEventCtx(evt *sse.Event) (*executer.CommandEventContext, error) {
 				if !ok {
 					return nil, fmt.Errorf("invalid CommandStarted event: missing 'command'")
 				}
-				evtCls = executer.CommandStarted
+				evtCls = event.Event
 				Kwargs["command"] = command
 			default:
 				return nil, fmt.Errorf("invalid CommandStarted event: missing 'command'")
@@ -359,7 +359,7 @@ func commandEventCtx(evt *sse.Event) (*executer.CommandEventContext, error) {
 				if err != nil {
 					return nil, err
 				}
-				evtCls = executer.CommandExecuted
+				evtCls = event.CommandExecuted
 				Kwargs["success"] = return_code == 0
 				msg, ok := x["message"]
 				if ok {
@@ -369,11 +369,11 @@ func commandEventCtx(evt *sse.Event) (*executer.CommandEventContext, error) {
 				return nil, fmt.Errorf("invalid CommandStarted event: missing 'return_code'")
 			}
 		case "stdout":
-			evtCls = executer.CommandStdOut
+			evtCls = event.CommandStdOut
 			Kwargs["output"] = fmt.Sprintf("%v", evtData)
 
 		case "stderr":
-			evtCls = executer.CommandStdErr
+			evtCls = event.CommandStdErr
 			Kwargs["output"] = fmt.Sprintf("%v", evtData)
 		default:
 			return nil, fmt.Errorf("unsupported runtime event: %v", evtKind)
@@ -381,6 +381,6 @@ func commandEventCtx(evt *sse.Event) (*executer.CommandEventContext, error) {
 	default:
 		return nil, fmt.Errorf("unknown kind")
 	}
-	return &executer.CommandEventContext{EvtCls: evtCls, Kwargs: Kwargs}, nil
+	return &event.CommandEventContext{EvtCls: evtCls, Kwargs: Kwargs}, nil
 
 }

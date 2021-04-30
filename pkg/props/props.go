@@ -39,6 +39,7 @@ const (
 
 // Activity-related Properties.
 type Activity struct {
+	Model
 	/* CostCap sets a Hard cap on total cost of the Activity (regardless of the usage vector or
 	pricing function). The Provider is entitled to 'kill' an Activity which exceeds the
 	capped cost amount indicated by Requestor.

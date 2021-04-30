@@ -44,6 +44,8 @@ type Source interface {
 type IDestination interface {
 	UploadUrl() string
 	DownloadStream() (*Content, error)
+	DownloadFile(ctx context.Context, destPath string)
+	DownloadBytes(ctx context.Context, limit int, resultFunc func(interface{}), errFunc func(error))
 }
 
 type Destination struct {
@@ -94,24 +96,26 @@ func (d *Destination) DownloadFile(ctx context.Context, destPath string) {
 	})
 }
 
-type IStorageProvider interface {
+type InputStorageProvider interface {
 	UploadStream(length int, stream []byte) (Source, error)
+	UploadBytes(data []byte) (Source, error)
+	UploadFile(filePath string) (Source, error)
 }
 
-type InputStorageProvider struct {
-	StorageProvider IStorageProvider
+type InputStorage struct {
+	InputStorageProvider
 }
 
-func (i *InputStorageProvider) UploadBytes(data []byte) (Source, error) {
-	return i.StorageProvider.UploadStream(len(data), data)
+func (i *InputStorage) UploadBytes(data []byte) (Source, error) {
+	return i.InputStorageProvider.UploadStream(len(data), data)
 }
 
-func (i *InputStorageProvider) UploadFile(filePath string) (Source, error) {
+func (i *InputStorage) UploadFile(filePath string) (Source, error) {
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		return nil, err
 	}
-	return i.StorageProvider.UploadStream(len(data), data)
+	return i.InputStorageProvider.UploadStream(len(data), data)
 
 }
 
@@ -119,13 +123,13 @@ type OutputStorageProvider interface {
 	NewDestination(destFile string) IDestination
 }
 
-type StorageProvider struct {
-	InputStorageProvider  InputStorageProvider
-	OutputStorageProvider OutputStorageProvider
+type StorageProvider interface {
+	InputStorageProvider
+	OutputStorageProvider
 }
 
 type ComposedStorageProvider struct {
-	StorageProvider
+	StorageProvider StorageProvider
 }
 
 func NewComposedStorageProvider(InputStorageProvider InputStorageProvider,
