@@ -1,4 +1,4 @@
-package executer
+package util
 
 import (
 	"context"
@@ -8,9 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hhio618/go-golem/pkg/event"
-	"github.com/hhio618/go-golem/pkg/props"
-	"github.com/hhio618/go-golem/pkg/rest"
 )
 
 type bufferedProposal struct {
@@ -205,5 +202,101 @@ func (self *AgreementPool) getAgreement() (*rest.Agreement, *props.NodeInfo, err
 	})
 	self.confirmed += 1
 	return agreement, nodeInfo, nil
+
+}
+
+func (self *AgreementPool) ReleaseAgreement(agreementId string, allowReuse bool) error) {
+	self.log.Lock()
+	defer self.log.Unlock()
+	bufferedAgreement,ok = self.agreements[agreementId]
+	if !ok{
+		return errors.New("not found")
+	}
+	bufferedAgreement.WorkerTask = nil
+	if !allowReuse || !bufferedAgreement.HasMultiActivity{
+		reason := map[string]string{"message": "Work cancelled", "golem.requestor.code": "Cancelled"}
+		//TODO: is this a good idea?
+		go self.terminateAgreement(agreementId, reason)
+	}
+	return nil
+}
+
+// terminateAgreement will terminate the agreement with given `agreementId`.
+func (self *AgreementPool) terminateAgreement(agreementId string, reason map[string]string){
+	bufferedAgreement, ok := self.agreements[agreementId]
+	if !ok{
+		//TODO:
+		//logger.warning("Trying to terminate agreement not in the pool. id: %s", agreement_id)
+		return
+	}
+	agreementDetails, err := bufferedAgreement.Agreement.Details()
+	var provider Provider
+	if err!=nil{
+		//TODO:
+		//logger.debug("Cannot get details for agreement %s", agreement_id, exc_info=True)
+		provider = "<couldn't get provider name>"
+	}esle{
+	    provider = agreementDetails.ProviderView.Extract(&props.NodeInfo{}).Name
+	}
+
+	//TODO:
+	// logger.debug(
+	// 	"Terminating agreement. id: %s, reason: %s, provider: %s",
+	// 	agreement_id,
+	// 	reason,
+	// 	provider,
+	// )
+
+	if bufferedAgreement.WorkerTask !=nil && !bufferedAgreement.WorkerTa.Done(){
+	//TODO:
+		// logger.debug(
+	// 	"Terminating agreement that still has worker. agreement_id: %s, worker: %s",
+	// 	buffered_agreement.agreement.id,
+	// 	buffered_agreement.worker_task,
+	// )
+	buffered_agreement.WorkerTask.Cancel()
+	}
+	if buffered_agreement.HasMultiActivity{
+		if ! bufferedAgreement.Agreement.Terminate(reason){
+			//TODO:
+			// logger.debug(
+			// 	"Couldn't terminate agreement. id: %s, provider: %s",
+			// 	buffered_agreement.agreement.id,
+			// 	provider,
+			// )
+		}
+	}
+	del(self.agreements, agreementId)
+	self.emitter(events.AgreementTerminated{AgrId:agreementId, reason:reason})
+}
+func (self *AgreementPool) terminateAll(reason map[string]string){
+	self.log.Lock()
+	defer self.log.Unlock()
+	for agreementId := range frozenset(self.agreements){
+	//TODO:
+	go self._terminate_agreement(agreement_id, reason)
+}
+
+}
+
+
+func (self *AgreementPool) onAgreementTerminated(agrId string,reason map[string]string){
+	```Reacts to agreement termination event
+
+	Should be called when AgreementTerminated event is received.
+	```
+	self.log.Lock()
+	defer self.log.Unlock()
+		bufferedAgreement, ok := self.agreements[agrId]
+		if !ok{
+			return
+		}
+
+
+	if bufferedAgreement.WorkerTask {
+		bufferedAgreement.WorkerTask.Cancel()
+	}
+	del(self.agreements, agrId)
+	self.emitter(events.AgreementTerminated{AgrId:agr_id, reason:reason})
 
 }
