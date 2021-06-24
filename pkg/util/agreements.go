@@ -2,12 +2,16 @@ package util
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
 	"sync"
 	"time"
 
+	"github.com/hhio618/go-golem/pkg/event"
+	"github.com/hhio618/go-golem/pkg/props"
+	"github.com/hhio618/go-golem/pkg/rest"
 )
 
 type bufferedProposal struct {
@@ -18,6 +22,7 @@ type bufferedProposal struct {
 
 type Task interface {
 	Done() bool
+	Cancel() error
 	Error() error
 }
 type bufferedAgreement struct {
@@ -28,19 +33,19 @@ type bufferedAgreement struct {
 }
 
 type AgreementPool struct {
-	emitter           func(Event)
-	offerBuffer       map[string]*bufferedProposal
-	agreements        map[string]*bufferedAgreement
+	emitter           func(interface{})
+	offerBuffer       map[string]bufferedProposal
+	agreements        map[string]bufferedAgreement
 	log               *sync.Mutex
 	rejectedProviders map[string]bool
 	confirmed         int
 }
 
-func NewAgreementPool(emitter func(Event)) *AgreementPool {
+func NewAgreementPool(emitter func(interface{})) *AgreementPool {
 	return &AgreementPool{
 		emitter:           emitter,
-		offerBuffer:       make(map[string]*bufferedProposal),
-		agreements:        make(map[string]*bufferedAgreement),
+		offerBuffer:       make(map[string]bufferedProposal),
+		agreements:        make(map[string]bufferedAgreement),
 		log:               &sync.Mutex{},
 		rejectedProviders: make(map[string]bool),
 		confirmed:         1,
@@ -59,7 +64,8 @@ func (self *AgreementPool) Cycle() {
 		}
 		task := bufferedAgreement.workerTask
 		if task != nil && !task.Done() {
-			self.releaseAgreement(bufferedAgreement.agreement.Id(), task.Error())
+			//TODO: double check this behaviour.
+			self.ReleaseAgreement(bufferedAgreement.agreement.Id(), task.Error() != nil)
 		}
 	}
 }
@@ -67,7 +73,7 @@ func (self *AgreementPool) Cycle() {
 func (self *AgreementPool) AddProposal(score float32, proposal *rest.OfferProposal) {
 	self.log.Lock()
 	defer self.log.Unlock()
-	self.offerBuffer[proposal.Issuer()] = &bufferedProposal{
+	self.offerBuffer[proposal.Issuer()] = bufferedProposal{
 		ts:       time.Now(),
 		score:    score,
 		proposal: proposal,
@@ -102,7 +108,7 @@ func (self *AgreementPool) getAgreement() (*rest.Agreement, *props.NodeInfo, err
 	emit := self.emitter
 
 	rand.Seed(time.Now().Unix())
-	agreements := make([]*bufferedAgreement, 0)
+	agreements := make([]bufferedAgreement, 0)
 	for _, a := range self.agreements {
 		agreements = append(agreements, a)
 	}
@@ -112,23 +118,23 @@ func (self *AgreementPool) getAgreement() (*rest.Agreement, *props.NodeInfo, err
 		return ba.agreement, ba.nodeInfo, nil
 	}
 
-	offers := make([]*bufferedProposal, 0)
+	offers := make([]bufferedProposal, 0)
 	for _, a := range self.offerBuffer {
 		offers = append(offers, a)
 	}
 
-	maxScoreOffers := make(map[float32][]*bufferedProposal, 0)
+	maxScoreOffers := make(map[float32][]bufferedProposal, 0)
 	maxScore := float32(math.MinInt64)
 	for _, bp := range offers {
 		if bp.score > maxScore {
 			maxScore = bp.score
 		}
 		if len(maxScoreOffers[bp.score]) == 0 {
-			maxScoreOffers[bp.score] = []*bufferedProposal{}
+			maxScoreOffers[bp.score] = []bufferedProposal{}
 		}
 		maxScoreOffers[bp.score] = append(maxScoreOffers[bp.score], bp)
 	}
-	var bp *bufferedProposal
+	var bp bufferedProposal
 	if _, ok := maxScoreOffers[maxScore]; ok {
 		bp = maxScoreOffers[maxScore][rand.Intn(len(maxScoreOffers[maxScore]))]
 	}
@@ -189,7 +195,7 @@ func (self *AgreementPool) getAgreement() (*rest.Agreement, *props.NodeInfo, err
 		return nil, nil, err
 	}
 	delete(self.rejectedProviders, bp.proposal.Issuer())
-	self.agreements[agreement.Id()] = &bufferedAgreement{
+	self.agreements[agreement.Id()] = bufferedAgreement{
 		agreement:        agreement,
 		nodeInfo:         nodeInfo,
 		workerTask:       nil,
@@ -205,15 +211,15 @@ func (self *AgreementPool) getAgreement() (*rest.Agreement, *props.NodeInfo, err
 
 }
 
-func (self *AgreementPool) ReleaseAgreement(agreementId string, allowReuse bool) error) {
+func (self *AgreementPool) ReleaseAgreement(agreementId string, allowReuse bool) error {
 	self.log.Lock()
 	defer self.log.Unlock()
-	bufferedAgreement,ok = self.agreements[agreementId]
-	if !ok{
+	bufferedAgreement, ok := self.agreements[agreementId]
+	if !ok {
 		return errors.New("not found")
 	}
-	bufferedAgreement.WorkerTask = nil
-	if !allowReuse || !bufferedAgreement.HasMultiActivity{
+	bufferedAgreement.workerTask = nil
+	if !allowReuse || !bufferedAgreement.hasMultiActivity {
 		reason := map[string]string{"message": "Work cancelled", "golem.requestor.code": "Cancelled"}
 		//TODO: is this a good idea?
 		go self.terminateAgreement(agreementId, reason)
@@ -222,21 +228,25 @@ func (self *AgreementPool) ReleaseAgreement(agreementId string, allowReuse bool)
 }
 
 // terminateAgreement will terminate the agreement with given `agreementId`.
-func (self *AgreementPool) terminateAgreement(agreementId string, reason map[string]string){
+func (self *AgreementPool) terminateAgreement(agreementId string, reason map[string]string) {
 	bufferedAgreement, ok := self.agreements[agreementId]
-	if !ok{
+	if !ok {
 		//TODO:
 		//logger.warning("Trying to terminate agreement not in the pool. id: %s", agreement_id)
 		return
 	}
-	agreementDetails, err := bufferedAgreement.Agreement.Details()
-	var provider Provider
-	if err!=nil{
+
+	provider := "<couldn't get provider name>"
+	agreementDetails, err := bufferedAgreement.agreement.Details()
+	if err != nil {
 		//TODO:
 		//logger.debug("Cannot get details for agreement %s", agreement_id, exc_info=True)
-		provider = "<couldn't get provider name>"
-	}esle{
-	    provider = agreementDetails.ProviderView.Extract(&props.NodeInfo{}).Name
+	} else {
+		node := &props.NodeInfo{}
+		err = agreementDetails.ProviderView().Extract(node)
+		if err != nil {
+			provider = node.Name
+		}
 	}
 
 	//TODO:
@@ -246,18 +256,26 @@ func (self *AgreementPool) terminateAgreement(agreementId string, reason map[str
 	// 	reason,
 	// 	provider,
 	// )
+	fmt.Printf("provider: %v", provider)
 
-	if bufferedAgreement.WorkerTask !=nil && !bufferedAgreement.WorkerTa.Done(){
-	//TODO:
+	if bufferedAgreement.workerTask != nil && !bufferedAgreement.workerTask.Done() {
+		//TODO:
 		// logger.debug(
-	// 	"Terminating agreement that still has worker. agreement_id: %s, worker: %s",
-	// 	buffered_agreement.agreement.id,
-	// 	buffered_agreement.worker_task,
-	// )
-	buffered_agreement.WorkerTask.Cancel()
+		// 	"Terminating agreement that still has worker. agreement_id: %s, worker: %s",
+		// 	buffered_agreement.agreement.id,
+		// 	buffered_agreement.worker_task,
+		// )
+		bufferedAgreement.workerTask.Done()
 	}
-	if buffered_agreement.HasMultiActivity{
-		if ! bufferedAgreement.Agreement.Terminate(reason){
+
+	// Converting reason to a map[string]interface{} type.
+	r := make(map[string]interface{})
+	for k, v := range reason {
+		r[k] = v
+	}
+
+	if bufferedAgreement.hasMultiActivity {
+		if err := bufferedAgreement.agreement.Terminate(r); err != nil {
 			//TODO:
 			// logger.debug(
 			// 	"Couldn't terminate agreement. id: %s, provider: %s",
@@ -266,37 +284,42 @@ func (self *AgreementPool) terminateAgreement(agreementId string, reason map[str
 			// )
 		}
 	}
-	del(self.agreements, agreementId)
-	self.emitter(events.AgreementTerminated{AgrId:agreementId, reason:reason})
+
+	delete(self.agreements, agreementId)
+	self.emitter(event.AgreementTerminated{AgreementEvent: event.AgreementEvent{AgrId: agreementId, Reason: reason}})
 }
-func (self *AgreementPool) terminateAll(reason map[string]string){
+func (self *AgreementPool) terminateAll(reason map[string]string) {
 	self.log.Lock()
 	defer self.log.Unlock()
-	for agreementId := range frozenset(self.agreements){
-	//TODO:
-	go self._terminate_agreement(agreement_id, reason)
-}
-
-}
-
-
-func (self *AgreementPool) onAgreementTerminated(agrId string,reason map[string]string){
-	```Reacts to agreement termination event
-
-	Should be called when AgreementTerminated event is received.
-	```
-	self.log.Lock()
-	defer self.log.Unlock()
-		bufferedAgreement, ok := self.agreements[agrId]
-		if !ok{
-			return
-		}
-
-
-	if bufferedAgreement.WorkerTask {
-		bufferedAgreement.WorkerTask.Cancel()
+	var frozen map[string]bufferedAgreement
+	/* Copy Content from self.agreements to frozen*/
+	for index, element := range self.agreements {
+		frozen[index] = element
 	}
-	del(self.agreements, agrId)
-	self.emitter(events.AgreementTerminated{AgrId:agr_id, reason:reason})
+	for agreementId := range frozen {
+		//TODO:
+		go self.terminateAgreement(agreementId, reason)
+	}
+
+}
+
+func (self *AgreementPool) onAgreementTerminated(agrId string, reason map[string]string) {
+	/*
+		Reacts to agreement termination event
+
+		Should be called when AgreementTerminated event is received.
+	*/
+	self.log.Lock()
+	defer self.log.Unlock()
+	bufferedAgreement, ok := self.agreements[agrId]
+	if !ok {
+		return
+	}
+
+	if bufferedAgreement.workerTask != nil {
+		bufferedAgreement.workerTask.Cancel()
+	}
+	delete(self.agreements, agrId)
+	self.emitter(event.AgreementTerminated{AgreementEvent: event.AgreementEvent{AgrId: agrId, Reason: reason}})
 
 }

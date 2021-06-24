@@ -122,7 +122,8 @@ func (e *NoProposalsConfirmed) ExtractExcInfo() (*ExcInfo, Event) {
 }
 
 type AgreementEvent struct {
-	AgrId string
+	AgrId  string
+	Reason map[string]string
 }
 
 func (e *AgreementEvent) ExtractExcInfo() (*ExcInfo, Event) {

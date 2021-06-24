@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hhio618/go-golem/pkg/event"
 	"github.com/hhio618/go-golem/pkg/props"
 	"github.com/hhio618/go-golem/pkg/storage"
 )
@@ -214,8 +215,8 @@ func (self *run) Register(commands CommnadContainer) error {
 }
 
 type StorageEvent struct {
-	*DownloadStarted
-	*DownloadFinished
+	*event.DownloadStarted
+	*event.DownloadFinished
 }
 type baseReceiveContent struct {
 	*sendWork
@@ -256,7 +257,7 @@ func (self *baseReceiveContent) emitDownloadStart() {
 	if self.emitter != nil {
 		self.emitter(
 			&StorageEvent{
-				DownloadStarted: &DownloadStarted{
+				DownloadStarted: &event.DownloadStarted{
 					Path: self.srcPath,
 				},
 			},
@@ -268,7 +269,7 @@ func (self *baseReceiveContent) emitDownloadEnd() {
 	if self.emitter != nil {
 		self.emitter(
 			&StorageEvent{
-				DownloadFinished: &DownloadFinished{
+				DownloadFinished: &event.DownloadFinished{
 					Path: self.destPath,
 				},
 			},
